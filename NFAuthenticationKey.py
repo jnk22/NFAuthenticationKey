@@ -159,6 +159,7 @@ class Main(object):
     def wait_user_logged(self):
         start_time = time.time()
         while time.time() - start_time < 300:  # 5 min
+            time.sleep(1)
             history_data = self.ws_request('Page.getNavigationHistory')
             history_index = history_data['currentIndex']
             # If the current page url is like "https://www.n*****x.com/browse" means that the user should have logged in successfully
