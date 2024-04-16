@@ -1,4 +1,7 @@
-v1.1.6 (2024-04-15)
+v1.1.8 (2024-04-16)
+- Changed localhost to 127.0.0.1 to prevent connect to ipv6
+
+v1.1.7 (2024-04-15)
 - Fix to prevent 100% cpu usage
 
 v1.1.6 (2023-03-12)
