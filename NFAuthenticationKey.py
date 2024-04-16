@@ -37,7 +37,7 @@ IS_MACOS = platform.system().lower() == 'darwin'
 # Script configuration
 BROWSER_PATH = '* Remove me and specify here the browser path, only if not recognized *'
 DEBUG_PORT = 9222
-LOCALHOST_ADDRESS = 'localhost'
+LOCALHOST_ADDRESS = '127.0.0.1'
 URL = 'https://www.netflix.com/login'
 
 
