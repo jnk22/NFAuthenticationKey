@@ -1,38 +1,52 @@
 """
+NFAuthenticationKey script.
+
 Copyright (C) 2020 Stefano Gottardo
 SPDX-License-Identifier: GPL-3.0-only
 See LICENSE.md for more information.
 """
 
+# /// script
+# requires-python = ">=3.9,<4"
+# dependencies = [
+#   "websocket-client",
+#   "pycryptodome",
+# ]
+# ///
+
+from __future__ import annotations
+
 import base64
+import contextlib
 import json
 import os
 import platform
 import random
 import re
 import shutil
-import socket
 import subprocess
-import sys
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
-import websocket  # pip install websocket-client
-
-try:  # Python 3
-    from urllib.request import HTTPError, URLError, urlopen
-except ImportError:  # Python 2
-    from urllib2 import HTTPError, URLError, urlopen
-
-try:  # The crypto package depends on the package installed
-    from Cryptodome.Cipher import AES
-    from Cryptodome.Util import Padding
-except ImportError:
-    from Crypto.Cipher import AES
-    from Crypto.Util import Padding
+import websocket
+from Crypto.Cipher import AES
+from Crypto.Util import Padding
 
 IS_MACOS = platform.system().lower() == "darwin"
+
+LINUX_BROWSERS = [
+    "google-chrome",
+    "google-chrome-stable",
+    "google-chrome-unstable",
+    "chromium",
+    "chromium-browser",
+    "brave-browser",
+]
+MACOS_BROWSERS = ["Google Chrome", "Chromium", "Brave Browser"]
 
 # Script configuration
 BROWSER_PATH = "* Remove me and specify here the browser path, only if not recognized *"
@@ -80,11 +94,9 @@ class Main:
             if browser_proc:
                 browser_proc.terminate()
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 if self._ws:
                     self._ws.close()
-            except Exception:
-                pass
 
     def operations(self):
         show_msg("Establish connection with the browser... please wait")
@@ -94,28 +106,22 @@ class Main:
         show_msg("Opening login webpage... please wait")
         self.ws_request("Page.navigate", {"url": URL})
 
-        self.ws_wait_event(
-            "Page.domContentEventFired"
-        )  # Wait loading DOM (document.onDOMContentLoaded event)
+        self.ws_wait_event("Page.domContentEventFired")
 
         show_msg(
             "Please login in to website now ...waiting for you to finish...",
             TextFormat.COL_LIGHT_BLUE,
         )
         if not self.wait_user_logged():
-            raise Warning(
-                "You have exceeded the time available for the login. Restart the operations."
-            )
+            msg = "You have exceeded the time available for the login. Restart the operations."
+            raise Warning(msg)
 
-        self.ws_wait_event(
-            "Network.loadingFinished"
-        )  # Wait loading DOM (document.onDOMContentLoaded event)
+        self.ws_wait_event("Network.loadingFinished")
 
         # Verify that falcorCache data exist, this data exist only when logged
         show_msg("Verification of data in progress... please wait")
-        html_page = self.ws_request(
-            "Runtime.evaluate", {"expression": "document.documentElement.outerHTML"}
-        )["result"]["value"]
+        params = {"expression": "document.documentElement.outerHTML"}
+        html_page = self.ws_request("Runtime.evaluate", params)["result"]["value"]
         react_context = extract_json(html_page, "reactContext")
         if react_context is None:
             # An error is happened in the reactContext extraction? try go on
@@ -132,16 +138,13 @@ class Main:
             ]
             if membership_status != "CURRENT_MEMBER":
                 show_msg(
-                    "The account membership status is: " + membership_status,
+                    f"The account membership status is: {membership_status}",
                     TextFormat.COL_LIGHT_RED,
                 )
-                raise Warning(
-                    "Your login can not be used. The possible causes are account not confirmed/renewed/reactivacted."
-                )
+                msg = "Your login can not be used. The possible causes are account not confirmed/renewed/reactivacted."
+                raise Warning(msg)
 
-        self.ws_wait_event(
-            "Page.loadEventFired"
-        )  # Wait loading page (window.onload event)
+        self.ws_wait_event("Page.loadEventFired")
 
         show_msg("File creation in progress... please wait")
         # Get all cookies
@@ -157,14 +160,13 @@ class Main:
             "app_author": "CastagnaIT",
             "timestamp": int(
                 (
-                    (datetime.utcnow() + timedelta(days=5))
-                    - datetime(year=1970, month=1, day=1)
+                    (datetime.now(timezone.utc) + timedelta(days=5))
+                    - datetime(year=1970, month=1, day=1, tzinfo=timezone.utc)
                 ).total_seconds()
             ),
             "data": {"cookies": cookies},
         }
-        # Save the "NFAuthentication.key" file
-        save_data(data, pin)
+        save_authentication_key(data, pin)
         # Close the browser
         self.ws_request("Browser.close")
         show_msg(
@@ -175,8 +177,7 @@ class Main:
     def get_browser_debug_endpoint(self):
         start_time = time.time()
         while time.time() - start_time < 15:
-            try:
-                endpoint = ""
+            with contextlib.suppress(TimeoutError, URLError, ValueError):
                 data = (
                     urlopen(f"http://{LOCALHOST_ADDRESS}:{DEBUG_PORT}/json", timeout=1)
                     .read()
@@ -184,21 +185,17 @@ class Main:
                 )
                 if not data:
                     raise ValueError
-                session_list = json.loads(data)
-                for item in session_list:
+                for item in json.loads(data):
                     if item["type"] == "page":
                         endpoint = item["webSocketDebuggerUrl"]
-                if not endpoint:
-                    raise Warning("Chrome session page not found")
-                self._ws = websocket.create_connection(endpoint)
-                return
-            except (
-                TimeoutError,
-                URLError,
-                ValueError,
-            ):  # json.JSONDecodeError inherited ValueError and available from >= py3.5
-                pass
-        raise Warning("Unable to connect with the browser")
+                        self._ws = websocket.create_connection(endpoint)
+                        return
+
+                msg = "Chrome session page not found"
+                raise Warning(msg)
+
+        msg = "Unable to connect with the browser"
+        raise Warning(msg)
 
     def wait_user_logged(self):
         start_time = time.time()
@@ -225,25 +222,25 @@ class Main:
         message = json.dumps({"id": req_id, "method": method, "params": params or {}})
         self._ws.send(message)
         start_time = time.time()
-        while True:
-            if time.time() - start_time > 10:
-                break
+        while time.time() - start_time <= 10:
             message = self._ws.recv()
             parsed_message = json.loads(message)
             if "result" in parsed_message and parsed_message["id"] == req_id:
                 return parsed_message["result"]
-        raise Warning("No data received from browser")
+
+        msg = "No data received from browser"
+        raise Warning(msg)
 
     def ws_wait_event(self, method):
         start_time = time.time()
-        while True:
-            if time.time() - start_time > 10:
-                break
+        while time.time() - start_time <= 10:
             message = self._ws.recv()
             parsed_message = json.loads(message)
             if "method" in parsed_message and parsed_message["method"] == method:
                 return parsed_message
-        raise Warning("No event data received from browser")
+
+        msg = "No event data received from browser"
+        raise Warning(msg)
 
 
 # Helper methods
@@ -273,54 +270,42 @@ def open_browser(browser_temp_path):
     try:
         browser_path = get_browser_path()
         show_msg(f"Browser startup... ({browser_path}) please wait")
-        return subprocess.Popen(
-            [browser_path] + params, stdout=dev_null, stderr=subprocess.STDOUT
-        )
+        args = [browser_path, *params]
+        return subprocess.Popen(args, stdout=dev_null, stderr=subprocess.STDOUT)
     finally:
         dev_null.close()
 
 
 def get_browser_path():
-    """Check and return the name of the installed browser"""
+    """Check and return the name of the installed browser."""
     if "*" not in BROWSER_PATH:
         return BROWSER_PATH
     if IS_MACOS:
-        for browser_name in ["Google Chrome", "Chromium", "Brave Browser"]:
-            path = (
-                "/Applications/" + browser_name + ".app/Contents/MacOS/" + browser_name
-            )
-            if os.path.exists(path):
+        for browser_name in MACOS_BROWSERS:
+            path = f"/Applications/{browser_name}.app/Contents/MacOS/{browser_name}"
+            if Path(path).exists():
                 return path
     else:
-        for browser_name in [
-            "google-chrome",
-            "google-chrome-stable",
-            "google-chrome-unstable",
-            "chromium",
-            "chromium-browser",
-            "brave-browser",
-        ]:
-            try:
-                path = (
+        for browser_name in LINUX_BROWSERS:
+            with contextlib.suppress(subprocess.CalledProcessError):
+                if path := (
                     subprocess.check_output(["which", browser_name])
                     .decode("utf-8")
                     .strip()
-                )
-                if path:
+                ):
                     return path
-            except subprocess.CalledProcessError:
-                pass
-    raise Warning(
-        'Browser not detected.\r\nTry check if it is installed or specify the path in the BROWSER_PATH field inside "NFAuthenticationKey.py" file'
-    )
+
+    msg = 'Browser not detected.\r\nTry check if it is installed or specify the path in the BROWSER_PATH field inside "NFAuthenticationKey.py" file'
+    raise Warning(msg)
 
 
 def assert_cookies(cookies):
     if not cookies:
-        raise Warning("Not found cookies")
+        msg = "Not found cookies"
+        raise Warning(msg)
     login_cookies = ["nfvdid", "SecureNetflixId", "NetflixId"]
     for cookie_name in login_cookies:
-        if not any(cookie["name"] == cookie_name for cookie in cookies):
+        if all(cookie["name"] != cookie_name for cookie in cookies):
             raise Warning("Not found cookies")
 
 
@@ -334,34 +319,28 @@ def extract_json(content, var_name):
         json_str_replace = json_str_replace.replace(r"\r", r"\\r")  # Escape return
         json_str_replace = json_str_replace.replace(r"\n", r"\\n")  # Escape line feed
         json_str_replace = json_str_replace.replace(r"\t", r"\\t")  # Escape tab
-        json_str_replace = json_str_replace.replace(
-            r"\p", r"/p"
-        )  # Unicode property not supported, we change slash to avoid unescape it
-        json_str_replace = json_str_replace.encode().decode(
-            "unicode_escape"
-        )  # Decode the string as unicode
-        json_str_replace = re.sub(
-            r'\\(?!["])', r"\\\\", json_str_replace
-        )  # Escape backslash (only when is not followed by double quotation marks \")
+        # Unicode property not supported, we change slash to avoid unescape it
+        json_str_replace = json_str_replace.replace(r"\p", r"/p")
+        # Decode the string as unicode
+        json_str_replace = json_str_replace.encode().decode("unicode_escape")
+        # Escape backslash (only when is not followed by double quotation marks \")
+        json_str_replace = re.sub(r'\\(?!["])', r"\\\\", json_str_replace)
         return json.loads(json_str_replace)
-    except Exception as exc:
+
+    except Exception:
         return None
 
 
-def save_data(data, pin):
-    raw = bytes(
-        Padding.pad(data_to_pad=json.dumps(data).encode("utf-8"), block_size=16)
-    )
+def save_authentication_key(data, pin):
+    pin_str = (str(pin) + str(pin) + str(pin) + str(pin)).encode("utf-8")
     iv = "\x00" * 16
-    cipher = AES.new(
-        (str(pin) + str(pin) + str(pin) + str(pin)).encode("utf-8"),
-        AES.MODE_CBC,
-        iv.encode("utf-8"),
-    )
+    cipher = AES.new(pin_str, AES.MODE_CBC, iv.encode("utf-8"))
+    data_to_pad = json.dumps(data).encode("utf-8")
+    raw = bytes(Padding.pad(data_to_pad=data_to_pad, block_size=16))
     encrypted_data = base64.b64encode(cipher.encrypt(raw)).decode("utf-8")
-    file = open("NFAuthentication.key", "w")
-    file.write(encrypted_data)
-    file.close()
+
+    with Path("NFAuthentication.key").open("w") as file:
+        file.write(encrypted_data)
 
 
 def show_msg(text, text_format=None):
@@ -373,8 +352,6 @@ def show_msg(text, text_format=None):
 def input_msg(text, text_format=None):
     if text_format:
         text = text_format + text + TextFormat.END
-    if sys.version_info.major == 2:
-        return raw_input(text)
     return input(text)
 
 
@@ -385,7 +362,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         show_msg("\r\nOperations cancelled")
     finally:
-        try:
+        with contextlib.suppress(Exception):
             shutil.rmtree(temp_path)
-        except Exception:
-            pass

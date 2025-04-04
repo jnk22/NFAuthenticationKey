@@ -4,6 +4,14 @@ A script for Linux that provide a method to login with NF Add-on.
 
 This is only the repository of the source code.
 
+## Usage
+
+Run with [uv](https://github.com/astral-sh/uv):
+
+```bash
+uv run https://raw.githubusercontent.com/jnk22/NFAuthenticationKey/refs/heads/linux/NFAuthenticationKey.py
+```
+
 ## Disclaimer
 
 The script and source code available on GitHub are provided "as is" without warranty of any kind, either express or implied. Use at your own risk.
