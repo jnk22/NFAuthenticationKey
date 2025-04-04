@@ -92,7 +92,7 @@ class Main(object):
         if not self.wait_user_logged():
             raise Warning('You have exceeded the time available for the login. Restart the operations.')
 
-        self.ws_wait_event('Page.domContentEventFired')  # Wait loading DOM (document.onDOMContentLoaded event)
+        self.ws_wait_event('Network.loadingFinished')  # Wait loading DOM (document.onDOMContentLoaded event)
 
         # Verify that falcorCache data exist, this data exist only when logged
         show_msg('Verification of data in progress... please wait')
