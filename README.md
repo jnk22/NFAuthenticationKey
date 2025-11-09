@@ -9,7 +9,7 @@ This is only the repository of the source code.
 Run with [uv](https://github.com/astral-sh/uv):
 
 ```bash
-uv run https://raw.githubusercontent.com/jnk22/NFAuthenticationKey/refs/heads/linux/NFAuthenticationKey.py
+uv run https://raw.githubusercontent.com/jnk22/NFAuthenticationKey/refs/heads/main/NFAuthenticationKey.py
 ```
 
 ## Disclaimer
