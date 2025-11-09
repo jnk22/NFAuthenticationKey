@@ -7,7 +7,7 @@ See LICENSE.md for more information.
 """
 
 # /// script
-# requires-python = ">=3.9,<4"
+# requires-python = ">=3.10,<4"
 # dependencies = [
 #   "websocket-client",
 #   "pycryptodome",
